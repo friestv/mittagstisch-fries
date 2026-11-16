@@ -1,5 +1,96 @@
 <!doctype html>
-<html lang="de"><head><meta charset="utf-8"><title>Mittagstisch Fries</title></head>
-<body style="font-family:sans-serif;background:#f9f9f9;color:#333;padding:40px">
-<h1>Mittagstisch Fries</h1><p>Seite im Aufbau - Schreibtest erfolgreich.</p>
-</body></html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>TV Fries</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
+  #menue, #prtg { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+  #prtg { display: none; background: #000; }
+  #prtg img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #prtg .fehler { color: #fff; font-size: 3vw; text-align: center; padding-top: 40vh; display: none; }
+  #leiste { position: fixed; right: 1.2vw; bottom: 1.2vw; padding: .5vw 1vw; border-radius: .6vw;
+            background: rgba(0,0,0,.65); color: #fff; font-size: 1.1vw; z-index: 10; }
+  #pause { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); display: none; z-index: 11;
+           padding: 2vw 3vw; border-radius: 1.5vw; background: rgba(0,0,0,.8); color: #fff;
+           font-size: 3vw; text-align: center; }
+  #pause small { display: block; font-size: 1.4vw; opacity: .8; margin-top: .6vw; }
+  body.pausiert #pause { display: block; }
+</style>
+</head>
+<body>
+<iframe id="menue" title="Mittagstisch"></iframe>
+<div id="prtg"><img id="bild" alt="PRTG CupConcept"><div class="fehler" id="fehler">PRTG-Bild nicht erreichbar</div></div>
+<div id="leiste"></div>
+<div id="pause">&#10074;&#10074; Pausiert<small>OK dr&uuml;cken zum Fortsetzen &middot; &#9664; &#9654; wechseln</small></div>
+<script>
+/* Ablauf: Menue (Heute 60 s, Woche 40 s) -> PRTG 60 s -> wieder von vorne */
+var DAUER_MENUE = 102000, DAUER_PRTG = 60000;
+var BILD_URL = "https://prtgtvccde.z49.web.core.windows.net/prtg.png";
+var menue = document.getElementById("menue"), prtg = document.getElementById("prtg");
+var bild = document.getElementById("bild"), fehler = document.getElementById("fehler");
+var leiste = document.getElementById("leiste");
+var ansicht = "menue", start = Date.now(), pausiert = false, pausePos = 0, bildTimer = null, geladenUm = "";
+
+function zweistellig(n) { return (n < 10 ? "0" : "") + n; }
+function ladeBild() {
+  var neu = new Image();
+  neu.onload = function () {
+    bild.src = neu.src; bild.style.display = "block"; fehler.style.display = "none";
+    var d = new Date(); geladenUm = zweistellig(d.getHours()) + ":" + zweistellig(d.getMinutes());
+  };
+  neu.onerror = function () { bild.style.display = "none"; fehler.style.display = "block"; };
+  neu.src = BILD_URL + "?t=" + Date.now();
+}
+function zeige(was) {
+  ansicht = was; start = Date.now(); pausePos = 0;
+  clearInterval(bildTimer);
+  if (was === "menue") {
+    prtg.style.display = "none"; menue.style.display = "block";
+    menue.src = "menue.html?t=" + Date.now() + "#tv";   /* frisch laden: startet bei Heute, holt neues Menue */
+  } else {
+    ladeBild(); bildTimer = setInterval(ladeBild, 30000);
+    menue.style.display = "none"; prtg.style.display = "block";
+  }
+}
+function weiter() { zeige(ansicht === "menue" ? "prtg" : "menue"); }
+function setzePause(an) {
+  pausiert = an;
+  if (an) { pausePos = Date.now() - start; } else { start = Date.now() - pausePos; }
+  document.body.classList.toggle("pausiert", an);
+  try { menue.contentWindow.tvPausiert = an; } catch (e) {}
+}
+function taste(e) {
+  var k = e.keyCode;
+  if (k === 13 || k === 32 || k === 415 || k === 19 || k === 10252) { setzePause(!pausiert); }
+  else if (k === 39) { weiter(); if (pausiert) pausePos = 0; }
+  else if (k === 37) { weiter(); if (pausiert) pausePos = 0; }
+  else { return; }
+  e.preventDefault(); e.stopPropagation();
+}
+document.addEventListener("keydown", taste, true);
+document.addEventListener("click", function () { setzePause(!pausiert); });
+menue.addEventListener("load", function () {
+  try {
+    var w = menue.contentWindow;
+    w.tvPausiert = pausiert;
+    w.document.addEventListener("keydown", taste, true);
+    w.document.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); setzePause(!pausiert); }, true);
+  } catch (e) {}
+});
+setInterval(function () {
+  var dauer = ansicht === "menue" ? DAUER_MENUE : DAUER_PRTG;
+  var lauf = pausiert ? pausePos : Date.now() - start;
+  var rest = Math.max(0, Math.ceil((dauer - lauf) / 1000));
+  if (!pausiert && lauf >= dauer) { weiter(); return; }
+  var txt = ansicht === "menue" ? "PRTG in " + rest + " s" : "PRTG" + (geladenUm ? " · geladen " + geladenUm : "") + " · Menü in " + rest + " s";
+  leiste.textContent = (pausiert ? "Pause · " : "") + txt + " · OK = Pause";
+}, 500);
+/* Sicherheitsnetz: einmal pro Stunde komplett neu laden (neue Version der Seite) */
+setTimeout(function () { if (!pausiert) location.reload(); else setInterval(function(){ if(!pausiert) location.reload(); }, 60000); }, 3600000);
+zeige("menue");
+</script>
+</body>
+</html>
